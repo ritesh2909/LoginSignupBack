@@ -1,4 +1,8 @@
-import User from "../model/User.js";
+import User from '../model/User.js';
+import bcryptjs from "bcryptjs";
+import jwt from 'jsonwebtoken';
+import cookieParser from 'cookie-parser';
+
 
 export const register = async (req, res) => {
   // validating request body
@@ -13,16 +17,16 @@ export const register = async (req, res) => {
   }
 
   const userName = await User.find({ username: req.body.username });
-  if (userName || userName.length > 0) {
+  if (userName.length > 0) {
     return res.status(400).json('User with this username already exists');
   }
   const userEmail = await User.find({ email: req.body.email });
-  if (userEmail || userEmail.length > 0) {
+  if (userEmail.length > 0) {
     return res.status(400).json('User with this email already exists');
   }
 
-  const salt = process.env.HASH;
-  const securePassword = bcrypt.hashSync(req.body.password, salt);
+  const salt = bcryptjs.genSaltSync(10);
+  const securePassword = bcryptjs.hashSync(req.body.password, salt);
   try {
     const newUser = new User({
       username: req.body.username,
@@ -31,7 +35,8 @@ export const register = async (req, res) => {
     })
 
     const savedUser = await newUser.save();
-    return res.status(200).json(savedUser);
+    const { password, ...others } = savedUser._doc;
+    res.status(200).json({ others });
 
   } catch (error) {
     return res.status(500).json(error);
@@ -46,18 +51,27 @@ export const login = async (req, res) => {
   if (!req.body.password) {
     return res.status(400).json('Enter a valid Password');
   }
-  const user = await User.find({ email: req.body.email });
-  if (!user || user.length < 0) {
-    return res.status(404).json('User not found');
-  }
-
 
   try {
-    const securePassword = await bcrypt.compare(req.body.password, user.password);
+    const user = await User.find({ email: req.body.email });
+    if (user.length < 0) {
+      return res.status(404).json('User not found');
+    }
+
+    const securePassword = await bcryptjs.compare(req.body.password, user[0].password);
     if (!securePassword) {
       return res.status(401).json('Wrong password');
     }
+
+    const { password, ...other } = user[0]._doc;
+    const token = jwt.sign({ id: user[0]._id }, process.env.SECRET_KEY);
+
+    res.cookie("access_token", token, {
+      httpOnly: true,
+    }).status(200).json(other);
+
   } catch (error) {
     return res.status(500).json(error);
   }
 }
+
